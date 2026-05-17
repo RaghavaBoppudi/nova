@@ -16,7 +16,6 @@ def ask(prompt: str, context: list = [], system_prompt: str = "") -> str:
         "system": system_prompt,
         "options": {
             "temperature": 0.3,
-            "num_predict": 100
         }
     })
 

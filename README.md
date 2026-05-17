@@ -1,6 +1,6 @@
 # NOVA : Neural Operations Voice Assistant
 
-A fully local, privacy-first AI voice assistant built for macOS. No cloud. No subscriptions. No data leaves your machine.
+A privacy-focused AI voice assistant built for macOS. Runs locally with minimal external dependencies. No subscriptions. No telemetry.
 
 ## Features
 - Voice input via push-to-talk (Whisper STT)
@@ -13,7 +13,13 @@ A fully local, privacy-first AI voice assistant built for macOS. No cloud. No su
 - Powered by Llama 3.1 8B running locally via Ollama
 
 ## Privacy
-All processing happens on-device. No API keys, no cloud services, no telemetry. Your conversations are stored locally in SQLite and ChromaDB databases that never leave your machine.
+NOVA is built with privacy as a core principle. All AI processing, memory, and calendar access happens entirely on-device.
+
+Only external network call is optional web search via Brave Search API, which sends your search query and IP address to Brave's servers. 
+
+Brave's privacy policy explicitly states they do not log individual search queries. This feature can be disabled entirely if you prefer fully offline operation.
+
+Your conversations, calendar data, and personal memories are stored locally in SQLite and ChromaDB and never leave your machine.
 
 ## Requirements
 - macOS 13+

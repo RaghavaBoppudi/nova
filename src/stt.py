@@ -1,5 +1,5 @@
-import sounddevice as sd
 import numpy as np
+import sounddevice as sd
 import tempfile
 import wave
 from faster_whisper import WhisperModel
@@ -8,26 +8,46 @@ print("Loading Whisper model...")
 model = WhisperModel("small", device="cpu", compute_type="int8")
 print("Whisper model ready.")
 
-SAMPLE_RATE = 48000  # Match macOS default
-WHISPER_RATE = 16000  # Whisper expects 16000
+SAMPLE_RATE = 48000
+WHISPER_RATE = 16000
 CHANNELS = 1
+SILENCE_THRESHOLD = 500
+SILENCE_DURATION = 1.5
+MAX_DURATION = 15
 
 
-def record_audio(duration: int = 5) -> np.ndarray:
-    print(f"Recording for {duration} seconds... speak now.")
-    audio = sd.rec(
-        int(duration * SAMPLE_RATE),
-        samplerate=SAMPLE_RATE,
-        channels=CHANNELS,
-        dtype='int16'
-    )
-    sd.wait()
+def record_until_silence() -> np.ndarray:
+    print("Listening... speak now.")
+    device = sd.query_devices(kind='input')
+    
+    chunk_size = int(SAMPLE_RATE * 0.1)
+    audio_chunks = []
+    silent_chunks = 0
+    max_silent_chunks = int(SILENCE_DURATION / 0.1)
+    max_chunks = int(MAX_DURATION / 0.1)
+    started_speaking = False
+
+    with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS,
+                        dtype='int16', device=device['name'],
+                        blocksize=chunk_size) as stream:
+        while len(audio_chunks) < max_chunks:
+            chunk, _ = stream.read(chunk_size)
+            amplitude = np.max(np.abs(chunk))
+            audio_chunks.append(chunk.copy())
+
+            if amplitude > SILENCE_THRESHOLD:
+                started_speaking = True
+                silent_chunks = 0
+            elif started_speaking:
+                silent_chunks += 1
+                if silent_chunks >= max_silent_chunks:
+                    break
+
     print("Recording complete.")
-    return audio
+    return np.concatenate(audio_chunks)
 
 
 def resample(audio: np.ndarray) -> np.ndarray:
-    """Downsample from 48000 to 16000 Hz."""
     ratio = WHISPER_RATE / SAMPLE_RATE
     target_length = int(len(audio) * ratio)
     resampled = np.interp(
@@ -52,11 +72,11 @@ def transcribe(audio: np.ndarray) -> str:
 
 
 def listen(duration: int = 5) -> str:
-    audio = record_audio(duration)
+    audio = record_until_silence()
     return transcribe(audio)
 
 
 if __name__ == "__main__":
-    print("Say something after the prompt...")
-    text = listen(duration=5)
+    print("Say something...")
+    text = listen()
     print(f"You said: {text}")
