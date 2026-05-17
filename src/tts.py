@@ -59,6 +59,27 @@ def clean_for_speech(text: str) -> str:
         flags=re.IGNORECASE
     )
 
+    # Convert decimals like 0.04 to natural speech
+    def format_decimal(match):
+        number_str = match.group(0)
+        parts = number_str.split('.')
+        whole = parts[0]
+        decimal = parts[1]
+        
+        digit_words = {
+            '0': 'zero', '1': 'one', '2': 'two', '3': 'three',
+            '4': 'four', '5': 'five', '6': 'six', '7': 'seven',
+            '8': 'eight', '9': 'nine'
+        }
+        
+        decimal_spoken = ' '.join(digit_words[d] for d in decimal)
+        
+        if whole == '0':
+            return f"zero point {decimal_spoken}"
+        return f"{whole} point {decimal_spoken}"
+
+    text = re.sub(r'\d+\.\d+', format_decimal, text)
+
     return text
 
 

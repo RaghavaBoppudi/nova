@@ -1,9 +1,8 @@
-cat > CLAUDE.md << 'EOF'
-# NOVA - Neural Operations and Voice Assistant
+# NOVA - Neural Operations Voice Assistant
 
 ## What This Is
-A fully local, privacy-first voice assistant running on M2 MacBook Air (16GB).
-No cloud. No paid APIs. No data leaves the machine.
+A fully local, privacy-focused voice assistant running on macOS.
+All AI processing, memory, and personal data stays on device.
 
 ## Hard Rules
 - All dependencies must be MIT or Apache 2.0 licensed. Check before suggesting any library.
@@ -14,22 +13,33 @@ No cloud. No paid APIs. No data leaves the machine.
 
 ## Stack
 - LLM: Ollama + Llama 3.1 8B
-- STT: faster-whisper
-- TTS: Piper TTS
-- Calendar: EventKit via PyObjC
-- Memory: SQLite (session) + ChromaDB (cross-session)
+- STT: faster-whisper (Whisper Small)
+- TTS: Kokoro ONNX
+- Calendar: AppleScript via osascript
+- Reminders: AppleScript via osascript
+- Memory: SQLite (session) + ChromaDB (cross-session semantic)
 - Audio: sounddevice + PyAudio
-- Orchestration: LangChain (minimal use)
+- Date parsing: dateparser + python-dateutil
 
 ## Project Structure
 - src/ — all application code
 - tests/ — one test file per src module
 - docs/ — architecture notes
+- models/ — local TTS model files (not committed to git)
 
-## Current Phase
-Phase 1 — Local LLM core + basic math
-EOF
+## Current State
+- Voice input with silence detection (no fixed duration)
+- Voice output via Kokoro TTS
+- Math and percentage calculations
+- Apple Calendar — read, create, move, delete events
+- Apple Reminders — read, create, complete, delete
+- Conversational info collection (asks for missing date/time)
+- Session memory (SQLite)
+- Cross-session semantic memory (ChromaDB)
+- Date/time calculations and natural language date parsing
+- Tool routing via single LLM classification call
+
 ## Hardware Notes
-- Mac runs in clamshell mode — built-in mic does not work in this mode
-- Always use AirPods or external microphone for audio input
+- Mac may run in clamshell mode — built-in mic does not work in this mode
+- Use AirPods or external microphone for audio input
 - Default sample rate is 48000 Hz (not 16000) — always resample to 16000 for Whisper
