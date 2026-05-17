@@ -57,14 +57,16 @@ Rules:
     response = ask(classification_prompt, [], system_prompt="You are a JSON classifier. Return only valid JSON. No explanation.")
 
     try:
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        # Strip markdown fences first
+        stripped = re.sub(r'```(?:json)?\s*', '', response).strip()
+        json_match = re.search(r'\{.*\}', stripped, re.DOTALL)
         if not json_match:
             return None
         clean = json_match.group(0)
         data = json.loads(clean)
 
         prompt_lower = prompt.lower()
-        if "tomorrow" in prompt_lower and data.get("date", "").lower() != "tomorrow":
+        if "tomorrow" in prompt_lower and (data.get("date") or "").lower() != "tomorrow":
             data["date"] = "tomorrow"
         
         # Override: free/clear = delete_range, never a reminder
@@ -81,7 +83,8 @@ Rules:
             data["intent"] = "get"
 
     except Exception as e:
-        print(f"DEBUG classify failed: {repr(response)}")
+        print(f"DEBUG classify failed error: {repr(e)}")
+        print(f"DEBUG response was: {repr(response)}")
         return None
 
     def resolve_date(date_raw: str) -> str:
