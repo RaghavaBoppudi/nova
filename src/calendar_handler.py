@@ -3,6 +3,7 @@ from datetime import datetime
 
 LOCAL_CALENDARS = ["Home", "Work"]
 
+
 def run_applescript(script: str) -> str:
     result = subprocess.run(
         ["osascript", "-e", script],
@@ -10,6 +11,7 @@ def run_applescript(script: str) -> str:
         timeout=15
     )
     return result.stdout.strip()
+
 
 def get_events_for_date(date_str: str = None) -> str:
     if date_str is None:
@@ -42,6 +44,7 @@ end tell'''
         return f"No events found for {date_str}"
     return " ".join(results)
 
+
 def create_event(title: str, date_str: str, time_str: str, duration_minutes: int = 60, calendar_name: str = "Home") -> str:
     dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
     apple_datetime = dt.strftime("%B %d, %Y %I:%M:%S %p")
@@ -54,6 +57,7 @@ def create_event(title: str, date_str: str, time_str: str, duration_minutes: int
 end tell
 return "Event created: {title}"'''
     return run_applescript(script)
+
 
 def move_event(title: str, new_date_str: str, new_time_str: str) -> str:
     dt = datetime.strptime(f"{new_date_str} {new_time_str}", "%Y-%m-%d %H:%M")
@@ -77,6 +81,7 @@ return ""'''
         if result.startswith("Moved"):
             return result
     return f"Event not found: {title}"
+
 
 if __name__ == "__main__":
     print("Today's events:")

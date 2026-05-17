@@ -4,8 +4,10 @@ from datetime import datetime
 
 DB_PATH = "nova_memory.db"
 
+
 def get_connection():
     return sqlite3.connect(DB_PATH)
+
 
 def init_db():
     conn = get_connection()
@@ -29,6 +31,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 def create_session() -> int:
     conn = get_connection()
     cursor = conn.cursor()
@@ -37,6 +40,7 @@ def create_session() -> int:
     conn.commit()
     conn.close()
     return session_id
+
 
 def save_message(session_id: int, role: str, content: str):
     conn = get_connection()
@@ -47,6 +51,7 @@ def save_message(session_id: int, role: str, content: str):
     )
     conn.commit()
     conn.close()
+
 
 def get_session_messages(session_id: int) -> list:
     conn = get_connection()
@@ -59,6 +64,7 @@ def get_session_messages(session_id: int) -> list:
     conn.close()
     return [{"role": row[0], "content": row[1]} for row in rows]
 
+
 def get_recent_messages(limit: int = 20) -> list:
     conn = get_connection()
     cursor = conn.cursor()
@@ -69,6 +75,7 @@ def get_recent_messages(limit: int = 20) -> list:
     rows = cursor.fetchall()
     conn.close()
     return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
+
 
 if __name__ == "__main__":
     init_db()

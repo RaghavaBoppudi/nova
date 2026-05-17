@@ -12,6 +12,7 @@ print("Embedding model ready.")
 client = chromadb.PersistentClient(path=CHROMA_PATH)
 collection = client.get_or_create_collection(COLLECTION_NAME)
 
+
 def store_memory(role: str, content: str, session_id: int):
     embedding = embedding_model.encode(content).tolist()
     doc_id = f"{session_id}_{datetime.now().timestamp()}"
@@ -25,6 +26,7 @@ def store_memory(role: str, content: str, session_id: int):
             "timestamp": datetime.now().isoformat()
         }]
     )
+
 
 def search_memory(query: str, n_results: int = 5) -> list:
     embedding = embedding_model.encode(query).tolist()
@@ -40,6 +42,7 @@ def search_memory(query: str, n_results: int = 5) -> list:
             "timestamp": results["metadatas"][0][i]["timestamp"]
         })
     return memories
+
 
 if __name__ == "__main__":
     print("Semantic memory module ready.")

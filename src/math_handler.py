@@ -1,6 +1,7 @@
 from simpleeval import simple_eval
 import re
 
+
 def extract_expression(prompt: str) -> str | None:
     """
     Extract a math expression from natural language.

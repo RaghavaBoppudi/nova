@@ -1,4 +1,4 @@
-# NOVA — Neural Operations Voice Assistant
+# NOVA : Neural Operations Voice Assistant
 
 A fully local, privacy-first AI voice assistant built for macOS. No cloud. No subscriptions. No data leaves your machine.
 
@@ -67,6 +67,19 @@ python src/main.py
 - **Session Memory**: SQLite
 - **Semantic Memory**: ChromaDB + sentence-transformers
 - **Tool Router**: keyword + math detection with LLM fallback
+
+## Known Limitations
+- Factual queries rely on Llama 3.1 8B which showed signed of hallucination on obscure topics
+- Real-time data (prices, news) not yet supported - coming post-beta with search integration
+- Built and tested on macOS only — other platforms not supported
+
+## Roadmap
+- Web search integration via Brave Search API
+- Self-hosted private search via SearXNG post-beta
+- Wake word detection ("Hey NOVA") to replace push-to-talk
+- Statistical modeling and advanced math
+- Expanded calendar parsing for natural language dates ("next Tuesday at 3")
+- Beta release and community feedback
 
 ## Status
 Currently in active development. Beta release coming soon.

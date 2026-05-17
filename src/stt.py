@@ -12,6 +12,7 @@ SAMPLE_RATE = 48000  # Match macOS default
 WHISPER_RATE = 16000  # Whisper expects 16000
 CHANNELS = 1
 
+
 def record_audio(duration: int = 5) -> np.ndarray:
     print(f"Recording for {duration} seconds... speak now.")
     audio = sd.rec(
@@ -24,6 +25,7 @@ def record_audio(duration: int = 5) -> np.ndarray:
     print("Recording complete.")
     return audio
 
+
 def resample(audio: np.ndarray) -> np.ndarray:
     """Downsample from 48000 to 16000 Hz."""
     ratio = WHISPER_RATE / SAMPLE_RATE
@@ -34,6 +36,7 @@ def resample(audio: np.ndarray) -> np.ndarray:
         audio.flatten()
     ).astype(np.int16)
     return resampled
+
 
 def transcribe(audio: np.ndarray) -> str:
     audio = resample(audio)
@@ -47,9 +50,11 @@ def transcribe(audio: np.ndarray) -> str:
         text = " ".join([s.text for s in segments]).strip()
         return text
 
+
 def listen(duration: int = 5) -> str:
     audio = record_audio(duration)
     return transcribe(audio)
+
 
 if __name__ == "__main__":
     print("Say something after the prompt...")
