@@ -1,5 +1,6 @@
 import sys
 import signal
+import re
 from src.stt import listen
 from src.tts import speak
 from src.router import route
@@ -43,10 +44,88 @@ def is_confirmation(prompt: str) -> bool:
     return False
 
 
+def extract_time(prompt_lower: str) -> str | None:
+    time_match = re.search(r'(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)', prompt_lower)
+    if time_match:
+        hour = int(time_match.group(1))
+        minute = int(time_match.group(2)) if time_match.group(2) else 0
+        meridiem = time_match.group(3).replace('.', '')
+        if meridiem == 'pm' and hour != 12:
+            hour += 12
+        elif meridiem == 'am' and hour == 12:
+            hour = 0
+        return f"{hour:02d}:{minute:02d}"
+    return None
+
+
+def handle_missing_info(pending: dict, prompt: str, prompt_lower: str):
+    """Handle collecting missing date/time info for events and reminders."""
+    from src.calendar_handler import parse_date
+    from src.reminder_handler import create_reminder
+    from src.calendar_handler import create_event, move_event
+
+    missing = pending.get("missing")
+    title = pending.get("title", "")
+    action = pending.get("action", "create")
+    is_reminder = pending.get("type") == "reminder"
+
+    if missing == "both":
+        time_str = extract_time(prompt_lower)
+        date_str = parse_date(prompt)
+
+        if date_str and time_str:
+            if is_reminder:
+                result = create_reminder(title, date_str, time_str)
+            elif action == "move":
+                result = move_event(title, date_str, time_str)
+            else:
+                result = create_event(title, date_str, time_str, pending.get("duration", 60))
+            return result, None
+        elif date_str:
+            pending["missing"] = "time"
+            pending["date"] = date_str
+            return None, f"What time should I {'remind you to' if is_reminder else 'schedule' if action == 'create' else 'move'} {title}?"
+        elif time_str:
+            pending["missing"] = "date"
+            pending["time"] = time_str
+            return None, f"What date should I {'remind you to' if is_reminder else 'schedule' if action == 'create' else 'move'} {title}?"
+        else:
+            return None, "I didn't catch that. What date and time?"
+
+    elif missing == "time":
+        time_str = extract_time(prompt_lower)
+        if time_str:
+            date_str = pending.get("date")
+            if is_reminder:
+                result = create_reminder(title, date_str, time_str)
+            elif action == "move":
+                result = move_event(title, date_str, time_str)
+            else:
+                result = create_event(title, date_str, time_str, pending.get("duration", 60))
+            return result, None
+        return None, "I didn't catch the time. What time?"
+
+    elif missing == "date":
+        date_str = parse_date(prompt)
+        if date_str:
+            time_str = pending.get("time")
+            if is_reminder:
+                result = create_reminder(title, date_str, time_str)
+            elif action == "move":
+                result = move_event(title, date_str, time_str)
+            else:
+                result = create_event(title, date_str, time_str, pending.get("duration", 60))
+            return result, None
+        return None, "I didn't catch the date. What date?"
+
+    return None, "Something went wrong. Please try again."
+
+
 def run():
     init_db()
     session_id = create_session()
     pending_action = None
+    pending_info = None
 
     print("NOVA is ready. Press Ctrl+C to quit.")
     speak("Hello, I am NOVA. How can I help you?")
@@ -54,14 +133,16 @@ def run():
     while True:
         input("\nPress Enter to speak...")
         print("Listening...")
-        prompt = listen(duration=5)
+        prompt = listen()
 
         if not prompt:
             speak("I didn't catch that. Please try again.")
             continue
 
         print(f"You: {prompt}")
+        prompt_lower = prompt.lower().strip()
 
+        # Handle pending calendar delete confirmation
         if pending_action:
             if is_confirmation(prompt):
                 action_type = pending_action.get("type")
@@ -77,16 +158,38 @@ def run():
                     continue
             else:
                 pending_action = None
-                response = "Cancelled. No events were deleted."
+                response = "Cancelled."
                 print(f"NOVA: {response}")
                 speak(response)
                 continue
 
+        # Handle pending missing info (event or reminder)
+        if pending_info:
+            result, follow_up = handle_missing_info(pending_info, prompt, prompt_lower)
+            if result:
+                pending_info = None
+                print(f"NOVA: {result}")
+                speak(result)
+            else:
+                print(f"NOVA: {follow_up}")
+                speak(follow_up)
+            continue
+
+        # Normal routing
         result = route(prompt, session_id, system_prompt=SYSTEM_PROMPT)
 
         if isinstance(result, dict) and result.get("requires_confirmation"):
             pending_action = result
             response = result["message"]
+
+        elif isinstance(result, dict) and result.get("requires_event_info"):
+            pending_info = {**result, "type": "event", "action": result.get("action", "create")}
+            response = result["message"]
+
+        elif isinstance(result, dict) and result.get("requires_reminder_info"):
+            pending_info = {**result, "type": "reminder"}
+            response = result["message"]
+
         else:
             response = result
 
