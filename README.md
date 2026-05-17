@@ -1,17 +1,19 @@
-# NOVA — Neural Operations and Voice Assistant
+# NOVA — Neural Operations Voice Assistant
 
 A fully local, privacy-first AI voice assistant built for macOS. No cloud. No subscriptions. No data leaves your machine.
 
 ## Features
 - Voice input via push-to-talk (Whisper STT)
-- Natural voice output (Kokoro TTS)
-- Conversational memory across sessions
-- Apple Calendar read, create, and move events
-- Math and unit conversion
+- Natural voice output (Kokoro TTS - af_bella)
+- Conversational memory within sessions (SQLite)
+- Cross-session semantic memory (ChromaDB)
+- Apple Calendar — read, create, and move events
+- Math and percentage calculations
+- Intelligent tool routing — automatically decides between math, calendar, and LLM
 - Powered by Llama 3.1 8B running locally via Ollama
 
 ## Privacy
-All processing happens on-device. No API keys, no cloud services, no telemetry.
+All processing happens on-device. No API keys, no cloud services, no telemetry. Your conversations are stored locally in SQLite and ChromaDB databases that never leave your machine.
 
 ## Requirements
 - macOS 13+
@@ -57,8 +59,17 @@ cd ../..
 python src/main.py
 ```
 
+## Architecture
+- **STT**: faster-whisper (Whisper Small, runs locally)
+- **LLM**: Ollama + Llama 3.1 8B
+- **TTS**: Kokoro ONNX (af_bella voice)
+- **Calendar**: AppleScript via osascript
+- **Session Memory**: SQLite
+- **Semantic Memory**: ChromaDB + sentence-transformers
+- **Tool Router**: keyword + math detection with LLM fallback
+
 ## Status
-Currently in active development. Beta release soon.
+Currently in active development. Beta release coming soon.
 
 ## License
 MIT — see [LICENSE](LICENSE)
