@@ -1,8 +1,9 @@
 import sys
 import signal
 import re
+import threading
 from src.stt import listen
-from src.tts import speak
+from src.tts import speak, interrupt
 from src.router import route
 from src.memory import init_db, create_session
 
@@ -23,6 +24,9 @@ CONFIRM_WORDS = ["yes", "yeah", "yep", "yup", "sure", "ok", "okay", "go ahead",
 
 DENY_WORDS = ["no", "nope", "cancel", "stop", "don't", "nevermind", "never mind",
               "abort", "wait", "hold on", "negative"]
+
+# Global flag — is NOVA currently speaking?
+_speaking = threading.Event()
 
 
 def signal_handler(sig, frame):
@@ -59,7 +63,6 @@ def extract_time(prompt_lower: str) -> str | None:
 
 
 def handle_missing_info(pending: dict, prompt: str, prompt_lower: str):
-    """Handle collecting missing date/time info for events and reminders."""
     from src.calendar_handler import parse_date
     from src.reminder_handler import create_reminder
     from src.calendar_handler import create_event, move_event
@@ -72,7 +75,6 @@ def handle_missing_info(pending: dict, prompt: str, prompt_lower: str):
     if missing == "both":
         time_str = extract_time(prompt_lower)
         date_str = parse_date(prompt)
-
         if date_str and time_str:
             if is_reminder:
                 result = create_reminder(title, date_str, time_str)
@@ -121,13 +123,45 @@ def handle_missing_info(pending: dict, prompt: str, prompt_lower: str):
     return None, "Something went wrong. Please try again."
 
 
+def speak_interruptible(text: str):
+    """Speak in a background thread. Enter key interrupts."""
+    _speaking.set()
+    t = threading.Thread(target=_speak_thread, args=(text,), daemon=True)
+    t.start()
+    return t
+
+
+def _speak_thread(text: str):
+    speak(text)
+    _speaking.clear()
+
+
+def wait_for_enter_or_finish(speak_thread: threading.Thread) -> bool:
+    """
+    Wait for either:
+    - TTS to finish naturally → return False (not interrupted)
+    - User presses Enter → interrupt TTS → return True (interrupted)
+    """
+    import select
+
+    while speak_thread.is_alive():
+        # Check if Enter was pressed (non-blocking)
+        if sys.stdin in select.select([sys.stdin], [], [], 0.1)[0]:
+            sys.stdin.readline()  # consume the Enter
+            interrupt()
+            speak_thread.join()
+            return True
+    return False
+
+
 def run():
     init_db()
     session_id = create_session()
     pending_action = None
     pending_info = None
 
-    print("NOVA is ready. Press Ctrl+C to quit.")
+    print("NOVA is ready.")
+    print("Press Enter to speak. Press Enter again while NOVA is talking to interrupt.")
     speak("Hello, I am NOVA. How can I help you?")
 
     while True:
@@ -154,25 +188,29 @@ def run():
                     )
                     pending_action = None
                     print(f"NOVA: {result}")
-                    speak(result)
+                    t = speak_interruptible(result)
+                    wait_for_enter_or_finish(t)
                     continue
             else:
                 pending_action = None
                 response = "Cancelled."
                 print(f"NOVA: {response}")
-                speak(response)
+                t = speak_interruptible(response)
+                wait_for_enter_or_finish(t)
                 continue
 
-        # Handle pending missing info (event or reminder)
+        # Handle pending missing info
         if pending_info:
             result, follow_up = handle_missing_info(pending_info, prompt, prompt_lower)
             if result:
                 pending_info = None
                 print(f"NOVA: {result}")
-                speak(result)
+                t = speak_interruptible(result)
+                wait_for_enter_or_finish(t)
             else:
                 print(f"NOVA: {follow_up}")
-                speak(follow_up)
+                t = speak_interruptible(follow_up)
+                wait_for_enter_or_finish(t)
             continue
 
         # Normal routing
@@ -181,20 +219,45 @@ def run():
         if isinstance(result, dict) and result.get("requires_confirmation"):
             pending_action = result
             response = result["message"]
-
         elif isinstance(result, dict) and result.get("requires_event_info"):
             pending_info = {**result, "type": "event", "action": result.get("action", "create")}
             response = result["message"]
-
         elif isinstance(result, dict) and result.get("requires_reminder_info"):
             pending_info = {**result, "type": "reminder"}
             response = result["message"]
-
         else:
             response = result
 
         print(f"NOVA: {response}")
-        speak(response)
+        t = speak_interruptible(response)
+        interrupted = wait_for_enter_or_finish(t)
+
+        # If interrupted, immediately start listening
+        if interrupted:
+            print("Listening...")
+            prompt = listen()
+            if not prompt:
+                continue
+            print(f"You: {prompt}")
+            prompt_lower = prompt.lower().strip()
+
+            result = route(prompt, session_id, system_prompt=SYSTEM_PROMPT)
+
+            if isinstance(result, dict) and result.get("requires_confirmation"):
+                pending_action = result
+                response = result["message"]
+            elif isinstance(result, dict) and result.get("requires_event_info"):
+                pending_info = {**result, "type": "event", "action": result.get("action", "create")}
+                response = result["message"]
+            elif isinstance(result, dict) and result.get("requires_reminder_info"):
+                pending_info = {**result, "type": "reminder"}
+                response = result["message"]
+            else:
+                response = result
+
+            print(f"NOVA: {response}")
+            t = speak_interruptible(response)
+            wait_for_enter_or_finish(t)
 
 
 if __name__ == "__main__":

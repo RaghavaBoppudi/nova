@@ -5,6 +5,7 @@ from src.memory import init_db, create_session, save_message, get_session_messag
 from src.semantic_memory import store_memory, search_memory
 from src.reminder_handler import get_reminders, create_reminder, complete_reminder, delete_reminder
 from datetime import datetime
+from src.notes_handler import get_notes, create_note, search_notes, delete_note
 import re
 
 init_db()
@@ -25,12 +26,12 @@ Return exactly this JSON:
     "is_reminder": true or false,
     "is_math": true or false,
     "expression": "math expression using numbers and operators only, or null",
-    "intent": "get" or "get_range" or "create" or "move" or "delete_range" or "complete" or "delete" or "unknown",
-    "title": "event or reminder title or null",
+"intent": "get" or "get_range" or "create" or "move" or "delete_range" or "complete" or "delete" or "search" or "unknown",    "title": "event or reminder title or null",
     "date": "natural language date string exactly as spoken, or null",
     "end_date": "natural language end date or null",
     "time": "HH:MM 24hr format or null",
-    "duration_minutes": number or 60
+    "duration_minutes": number or 60,
+    "is_notes": true or false
 }}
 
 Rules:
@@ -49,7 +50,9 @@ Rules:
 - For reminder intent "delete": remove a reminder
 - is_reminder is ONLY true when the user is explicitly asking NOVA to remind THEM of something
 - Third-person statements like "Raman will do X" are NOT reminders
-- "Remind me", "don't let me forget", "I need to remember" are reminder triggers"""
+- "Remind me", "don't let me forget", "I need to remember" are reminder triggers
+- is_notes is true for notes, memos, write this down, jot this down
+- is_notes is ONLY true when creating, reading, searching or deleting notes"""
 
     response = ask(classification_prompt, [], system_prompt="You are a JSON classifier. Return only valid JSON. No explanation.")
 
@@ -69,6 +72,13 @@ Rules:
             data["is_calendar"] = True
             data["is_reminder"] = False
             data["intent"] = "delete_range"
+        
+        # Override: "planned", "schedule", "agenda" = calendar get
+        if any(k in prompt_lower for k in ["planned", "on my schedule", "on my agenda", "anything today", "anything tomorrow"]):
+            data["is_calendar"] = True
+            data["is_reminder"] = False
+            data["is_notes"] = False
+            data["intent"] = "get"
 
     except Exception as e:
         print(f"DEBUG classify failed: {repr(response)}")
@@ -146,6 +156,29 @@ Rules:
             return delete_reminder(title)
 
         return get_reminders()
+
+# Handle notes
+    if data.get("is_notes"):
+        intent = data.get("intent", "get")
+        title = data.get("title") or ""
+
+        # Force search intent if search keywords present
+        if any(k in prompt.lower() for k in ["search", "find", "look for", "containing", "about"]):
+            intent = "search"
+
+        if intent == "get":
+            return get_notes()
+
+        if intent == "create":
+            return create_note(title)
+
+        if intent == "delete":
+            return delete_note(title)
+
+        if intent == "search":
+            return search_notes(title) if title else get_notes()
+
+        return get_notes()
 
     # Handle calendar
     if not data.get("is_calendar"):

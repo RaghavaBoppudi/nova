@@ -1,8 +1,7 @@
 import re
+import threading
 import sounddevice as sd
 import numpy as np
-import wave
-import io
 from datetime import datetime
 from kokoro_onnx import Kokoro
 
@@ -14,12 +13,19 @@ print("Loading Kokoro voice model...")
 kokoro = Kokoro(MODEL_PATH, VOICES_PATH)
 print("Kokoro ready.")
 
+# Global interrupt flag
+_interrupt = threading.Event()
+
+
+def interrupt():
+    """Call this to stop current playback."""
+    _interrupt.set()
+    sd.stop()
+
 
 def clean_for_speech(text: str) -> str:
-    # Normalize unicode spaces
     text = text.replace('\u202f', ' ').replace('\u00a0', ' ')
 
-    # Convert 2026-05-15 -> May 15th
     def format_iso_date(match):
         try:
             dt = datetime(int(match.group(1)), int(match.group(2)), int(match.group(3)))
@@ -30,7 +36,6 @@ def clean_for_speech(text: str) -> str:
 
     text = re.sub(r'(\d{4})-(\d{2})-(\d{2})', format_iso_date, text)
 
-    # Convert 5/15/26 -> May 15th
     def format_short_date(match):
         try:
             month, day, year = match.group(1), match.group(2), match.group(3)
@@ -43,7 +48,6 @@ def clean_for_speech(text: str) -> str:
 
     text = re.sub(r'(\d{1,2})/(\d{1,2})/(\d{2,4})', format_short_date, text)
 
-    # Convert 9:00:00 AM -> 9 AM, 9:30:00 AM -> 9:30 AM
     def format_time(match):
         hour = match.group(1)
         minute = match.group(2)
@@ -59,21 +63,17 @@ def clean_for_speech(text: str) -> str:
         flags=re.IGNORECASE
     )
 
-    # Convert decimals like 0.04 to natural speech
     def format_decimal(match):
         number_str = match.group(0)
         parts = number_str.split('.')
         whole = parts[0]
         decimal = parts[1]
-        
         digit_words = {
             '0': 'zero', '1': 'one', '2': 'two', '3': 'three',
             '4': 'four', '5': 'five', '6': 'six', '7': 'seven',
             '8': 'eight', '9': 'nine'
         }
-        
         decimal_spoken = ' '.join(digit_words[d] for d in decimal)
-        
         if whole == '0':
             return f"zero point {decimal_spoken}"
         return f"{whole} point {decimal_spoken}"
@@ -83,11 +83,23 @@ def clean_for_speech(text: str) -> str:
     return text
 
 
-def speak(text: str, speed: float = 1.0):
+def speak(text: str, speed: float = 1.0) -> bool:
+    """
+    Speak text. Returns True if completed, False if interrupted.
+    """
+    _interrupt.clear()
     text = clean_for_speech(text)
     samples, sample_rate = kokoro.create(text, voice=VOICE, speed=speed, lang="en-us")
     sd.play(samples, samplerate=sample_rate)
-    sd.wait()
+
+    # Wait for playback to finish or interrupt
+    while sd.get_stream().active:
+        if _interrupt.is_set():
+            sd.stop()
+            return False
+        threading.Event().wait(0.05)
+
+    return not _interrupt.is_set()
 
 
 if __name__ == "__main__":
