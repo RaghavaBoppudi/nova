@@ -10,7 +10,7 @@ def ask(prompt: str, context: list = [], system_prompt: str = "") -> str:
     messages = context + [{"role": "user", "content": prompt}]
 
     payload = json.dumps({
-        "model": "llama3.1:8b",
+        "model": "gemma3:4b",
         "messages": messages,
         "stream": False,
         "system": system_prompt,

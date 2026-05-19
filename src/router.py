@@ -3,9 +3,9 @@ from src.calendar_handler import get_events_for_date, get_events_for_range, crea
 from src.llm import ask
 from src.memory import init_db, create_session, save_message, get_session_messages
 from src.semantic_memory import store_memory, search_memory
-from src.reminder_handler import get_reminders, create_reminder, complete_reminder, delete_reminder
-from datetime import datetime
+from src.reminder_handler import get_reminders, create_reminder, complete_reminder, delete_reminder, delete_reminders_with_confirmation, execute_delete_reminders
 from src.notes_handler import get_notes, create_note, search_notes, delete_note
+from datetime import datetime
 import re
 
 init_db()
@@ -26,12 +26,14 @@ Return exactly this JSON:
     "is_reminder": true or false,
     "is_math": true or false,
     "expression": "math expression using numbers and operators only, or null",
-"intent": "get" or "get_range" or "create" or "move" or "delete_range" or "complete" or "delete" or "search" or "unknown",    "title": "event or reminder title or null",
+    "intent": "get" or "get_range" or "create" or "move" or "delete_range" or "complete" or "delete" or "search" or "unknown",
+    "title": "event or reminder title or null",
     "date": "natural language date string exactly as spoken, or null",
     "end_date": "natural language end date or null",
     "time": "HH:MM 24hr format or null",
     "duration_minutes": number or 60,
-    "is_notes": true or false
+    "is_notes": true or false,
+    "requested_count": number or null
 }}
 
 Rules:
@@ -52,12 +54,31 @@ Rules:
 - Third-person statements like "Raman will do X" are NOT reminders
 - "Remind me", "don't let me forget", "I need to remember" are reminder triggers
 - is_notes is true for notes, memos, write this down, jot this down
-- is_notes is ONLY true when creating, reading, searching or deleting notes"""
+- is_notes is ONLY true when creating, reading, searching or deleting notes
+- requested_count: if user says "delete both" set to 2, "delete all three" set to 3, otherwise null
 
-    response = ask(classification_prompt, [], system_prompt="You are a JSON classifier. Return only valid JSON. No explanation.")
+Examples:
+- "remind me to call mom tomorrow at 9am" → is_reminder: true, intent: create, title: "call mom", date: "tomorrow", time: "09:00"
+- "what are my reminders" → is_reminder: true, intent: get
+- "delete both call mom reminders" → is_reminder: true, intent: delete, title: "call mom", requested_count: 2
+- "delete all reminders for tomorrow" → is_reminder: true, intent: delete_range, date: "tomorrow"
+- "clear all my reminders for today" → is_reminder: true, intent: delete_range, date: "today"
+- "set up a meeting on Friday at 3pm" → is_calendar: true, intent: create, title: "meeting", date: "this Friday", time: "15:00"
+- "what is 15% of 200" → is_math: true, expression: "(15/100)*200"
+- "create a note about the project" → is_notes: true, intent: create, title: "project"
+- "delete all events this weekend" → is_calendar: true, intent: delete_range
+- "what is on my calendar tomorrow" → is_calendar: true, intent: get, date: "tomorrow"
+- "what's on my schedule today" → is_calendar: true, intent: get, date: "today"
+- "do I have anything planned next Friday" → is_calendar: true, intent: get, date: "next Friday"
+- "write a note to pick up Aadu tomorrow" → is_notes: true, intent: create, title: "pick up Aadu tomorrow"
+- "jot this down" → is_notes: true, intent: create
+- "make a note that" → is_notes: true, intent: create
+- "note to self" → is_notes: true, intent: create
+"""
+
+    response = ask(classification_prompt, [], system_prompt="You are a JSON classifier. Return ONLY the exact JSON structure provided in the prompt. Do not create your own structure. No explanation. No markdown.")
 
     try:
-        # Strip markdown fences first
         stripped = re.sub(r'```(?:json)?\s*', '', response).strip()
         json_match = re.search(r'\{.*\}', stripped, re.DOTALL)
         if not json_match:
@@ -66,19 +87,51 @@ Rules:
         data = json.loads(clean)
 
         prompt_lower = prompt.lower()
+
+        # Override: tomorrow date
         if "tomorrow" in prompt_lower and (data.get("date") or "").lower() != "tomorrow":
             data["date"] = "tomorrow"
-        
-        # Override: free/clear = delete_range, never a reminder
+
+        # Override: free/clear = calendar delete_range
         if any(k in prompt_lower for k in ["want to be free", "free up", "clear my", "no meetings"]):
             data["is_calendar"] = True
             data["is_reminder"] = False
+            data["is_notes"] = False
             data["intent"] = "delete_range"
-        
-        # Override: "planned", "schedule", "agenda" = calendar get
+
+        # Override: planned/schedule/agenda = calendar get
         if any(k in prompt_lower for k in ["planned", "on my schedule", "on my agenda", "anything today", "anything tomorrow"]):
             data["is_calendar"] = True
             data["is_reminder"] = False
+            data["is_notes"] = False
+            data["intent"] = "get"
+
+        # Override: calendar search/unknown = get
+        if data.get("is_calendar") and data.get("intent") in ["search", "unknown"]:
+            data["intent"] = "get"
+
+        # Override: explicit note-taking phrases
+        if any(k in prompt_lower for k in ["write a note", "make a note", "jot this down", "note to self", "note that"]):
+            data["is_notes"] = True
+            data["is_calendar"] = False
+            data["is_reminder"] = False
+            data["intent"] = "create"
+
+        # Override: delete all reminders for a date
+        if any(k in prompt_lower for k in ["delete all reminders", "clear all reminders", "remove all reminders"]):
+            data["is_reminder"] = True
+            data["is_calendar"] = False
+            data["is_notes"] = False
+            data["intent"] = "delete_range"
+
+        # Override: reminder keyword + empty title + delete = delete_range
+        if data.get("is_reminder") and data.get("intent") == "delete" and not data.get("title"):
+            data["intent"] = "delete_range"
+
+        # Override: "reminders" keyword in query = reminder get (only for get-type intents)
+        if ("reminder" in prompt_lower or "reminders" in prompt_lower) and data.get("intent") in ["get", "get_range", "search", "unknown"]:
+            data["is_reminder"] = True
+            data["is_calendar"] = False
             data["is_notes"] = False
             data["intent"] = "get"
 
@@ -111,6 +164,12 @@ Rules:
         title = data.get("title") or ""
 
         if intent == "get":
+            date_raw = data.get("date")
+            if date_raw:
+                from src.reminder_handler import get_reminders_for_date
+                date_str = resolve_date(date_raw)
+                if date_str:
+                    return get_reminders_for_date(date_str)
             return get_reminders()
 
         if intent == "create":
@@ -156,31 +215,41 @@ Rules:
             return complete_reminder(title)
 
         if intent == "delete":
-            return delete_reminder(title)
+            requested_count = data.get("requested_count")
+            return delete_reminders_with_confirmation(title, requested_count)
+
+        if intent == "delete_range":
+            date_raw = data.get("date")
+            date_str = resolve_date(date_raw) if date_raw else datetime.now().strftime("%Y-%m-%d")
+            from src.reminder_handler import get_reminders_for_date, execute_delete_reminders_for_date
+            reminders = get_reminders_for_date(date_str)
+            if "No reminders found" in reminders:
+                return reminders
+            return {
+                "requires_confirmation": True,
+                "type": "delete_reminders_date",
+                "date": date_str,
+                "message": f"I found: {reminders} Delete all of them?"
+            }
 
         return get_reminders()
 
-# Handle notes
+    # Handle notes
     if data.get("is_notes"):
         intent = data.get("intent", "get")
         title = data.get("title") or ""
 
-        # Force search intent if search keywords present
         if any(k in prompt.lower() for k in ["search", "find", "look for", "containing", "about"]):
             intent = "search"
 
         if intent == "get":
             return get_notes()
-
         if intent == "create":
             return create_note(title)
-
         if intent == "delete":
             return delete_note(title)
-
         if intent == "search":
             return search_notes(title) if title else get_notes()
-
         return get_notes()
 
     # Handle calendar
@@ -290,6 +359,8 @@ Rules:
 
     if intent == "delete_range":
         prompt_lower = prompt.lower()
+        requested_count = data.get("requested_count")
+
         if "this week" in prompt_lower:
             today = datetime.now()
             start_str = today.strftime("%Y-%m-%d")
@@ -308,12 +379,23 @@ Rules:
         if events == "No events found for that period":
             return "No events found to delete."
 
+        event_list = [e.strip() for e in events.split(",") if e.strip()]
+        count = len(event_list)
+
+        if requested_count is not None and count != requested_count:
+            if count == 1:
+                msg = f"I only found one event: {events} Delete it?"
+            else:
+                msg = f"I found {count} events: {events} Delete all of them?"
+        else:
+            msg = f"I found {count} event{'s' if count > 1 else ''}: {events} Delete {'all of them' if count > 1 else 'it'}?"
+
         return {
             "requires_confirmation": True,
             "type": "delete_range",
             "start": start_str,
             "end": end_str,
-            "message": f"I found: {events} Delete all of them?"
+            "message": msg
         }
 
     return None
@@ -325,7 +407,7 @@ def route(prompt: str, session_id: int, system_prompt: str = "") -> str | dict:
 
     prompt_lower = prompt.lower()
 
-    if any(k in prompt_lower for k in ["what day is it", "what's today", "what is today", "today's date", "what date is it", "current date", "what time is it"]):
+    if any(k in prompt_lower for k in ["what day is it", "what's today", "what is today", "today's date", "what date is it", "current date", "what time is it"]) and "tomorrow" not in prompt_lower and "yesterday" not in prompt_lower:
         response = datetime.now().strftime("Today is %A, %B %d, %Y.")
         save_message(session_id, "assistant", response)
         store_memory("assistant", response, session_id)

@@ -24,6 +24,12 @@ def interrupt():
 
 
 def clean_for_speech(text: str) -> str:
+    # Strip markdown
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # bold
+    text = re.sub(r'\*(.+?)\*', r'\1', text)        # italic
+    text = re.sub(r'#{1,6}\s+', '', text)            # headers
+    text = re.sub(r'😊|😀|😂|🤔|👍|🎉|✅|❌', '', text)  # common emojis
+    
     text = text.replace('\u202f', ' ').replace('\u00a0', ' ')
 
     def format_iso_date(match):

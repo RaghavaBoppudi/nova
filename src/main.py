@@ -11,12 +11,14 @@ SYSTEM_PROMPT = """You are NOVA, a voice assistant. Your responses will be spoke
 Rules:
 - Maximum 2 sentences. Hard limit. Never exceed this.
 - If the answer needs more than 2 sentences, give the most important part only.
-- No bullet points, no lists, no markdown.
+- No bullet points, no lists, no markdown, no bold, no asterisks.
 - No filler words: no 'certainly', 'great question', 'of course', 'however'.
+- No follow up questions. Never ask if the user wants to know more.
 - Answer immediately. No preamble.
 - Use imperial units (mph, miles, lb, Fahrenheit).
 - For unknown prices or live data, say 'I don't have real-time data for that.'
-- Never suggest the user ask Siri, Google, or Alexa."""
+- Never suggest the user ask Siri, Google, or Alexa.
+- Never use emojis."""
 
 CONFIRM_WORDS = ["yes", "yeah", "yep", "yup", "sure", "ok", "okay", "go ahead",
                  "do it", "correct", "right", "affirmative", "delete", "remove",
@@ -186,6 +188,25 @@ def run():
                         pending_action["start"],
                         pending_action["end"]
                     )
+                    pending_action = None
+                    print(f"NOVA: {result}")
+                    t = speak_interruptible(result)
+                    wait_for_enter_or_finish(t)
+                    continue
+                elif action_type == "delete_reminders":
+                    from src.reminder_handler import execute_delete_reminders
+                    result = execute_delete_reminders(
+                        pending_action["title"],
+                        pending_action.get("list_name", "Reminders")
+                    )
+                    pending_action = None
+                    print(f"NOVA: {result}")
+                    t = speak_interruptible(result)
+                    wait_for_enter_or_finish(t)
+                    continue
+                elif action_type == "delete_reminders_date":
+                    from src.reminder_handler import execute_delete_reminders_for_date
+                    result = execute_delete_reminders_for_date(pending_action["date"])
                     pending_action = None
                     print(f"NOVA: {result}")
                     t = speak_interruptible(result)
