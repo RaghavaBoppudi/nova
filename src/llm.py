@@ -26,7 +26,12 @@ def _ask_groq(prompt: str, context: list, system_prompt: str) -> str:
         temperature=0.3,
         max_tokens=120
     )
-    return response.choices[0].message.content
+    content = response.choices[0].message.content
+    from src.guardrails import check_output
+    status, fallback = check_output(content)
+    if status == "error":
+        return fallback
+    return content
 
 
 def _ask_ollama(prompt: str, context: list, system_prompt: str) -> str:

@@ -8,3 +8,4 @@ __pycache__/
 models/
 nova_memory.db
 nova_chroma/
+nova_guardrail_log.txt

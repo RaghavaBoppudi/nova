@@ -7,6 +7,7 @@ from src.stt import listen
 from src.tts import speak, interrupt
 from src.router import route
 from src.memory import init_db, create_session
+from src.guardrails import check_input, check_output
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -196,6 +197,24 @@ def run():
 
         print(f"You: {prompt}")
         prompt_lower = prompt.lower().strip()
+
+        # Guardrails — check input before any routing
+        guard_status, guard_response = check_input(prompt)
+        if guard_status == "crisis":
+            print(f"NOVA: {guard_response}")
+            t = speak_interruptible(guard_response)
+            wait_for_enter_or_finish(t)
+            continue
+        if guard_status == "distress":
+            print(f"NOVA: {guard_response}")
+            t = speak_interruptible(guard_response)
+            wait_for_enter_or_finish(t)
+            continue
+        if guard_status == "block":
+            print(f"NOVA: {guard_response}")
+            t = speak_interruptible(guard_response)
+            wait_for_enter_or_finish(t)
+            continue
 
         # Handle pending confirmation (delete operations)
         if pending_action:
