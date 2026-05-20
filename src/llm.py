@@ -6,7 +6,7 @@ load_dotenv()
 
 # Backend selection — set NOVA_BACKEND=local to use Ollama instead
 BACKEND = os.getenv("NOVA_BACKEND", "groq")
-GROQ_MODEL = os.getenv("NOVA_MODEL", "llama-3.1-8b-instant")
+GROQ_MODEL = os.getenv("NOVA_MODEL", "llama-3.3-70b-versatile")
 OLLAMA_MODEL = os.getenv("NOVA_OLLAMA_MODEL", "gemma3:4b")
 
 # Groq client — reads GROQ_API_KEY from environment

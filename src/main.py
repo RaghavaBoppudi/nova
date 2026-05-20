@@ -37,6 +37,7 @@ _speaking = threading.Event()
 
 
 def signal_handler(sig, frame):
+    speak("Goodbye.")
     print("\nGoodbye.")
     sys.exit(0)
 
