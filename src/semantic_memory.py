@@ -14,6 +14,14 @@ collection = client.get_or_create_collection(COLLECTION_NAME)
 
 
 def store_memory(role: str, content: str, session_id: int):
+    """
+    Store a message in semantic memory with its embedding.
+
+    Args:
+        role: "user" or "assistant"
+        content: The message text
+        session_id: The session this message belongs to
+    """
     embedding = embedding_model.encode(content).tolist()
     doc_id = f"{session_id}_{datetime.now().timestamp()}"
     collection.add(
@@ -29,19 +37,32 @@ def store_memory(role: str, content: str, session_id: int):
 
 
 def search_memory(query: str, n_results: int = 5) -> list:
-    embedding = embedding_model.encode(query).tolist()
-    results = collection.query(
-        query_embeddings=[embedding],
-        n_results=n_results
-    )
-    memories = []
-    for i, doc in enumerate(results["documents"][0]):
-        memories.append({
-            "content": doc,
-            "role": results["metadatas"][0][i]["role"],
-            "timestamp": results["metadatas"][0][i]["timestamp"]
-        })
-    return memories
+    """
+    Search semantic memory for content similar to the query.
+
+    Args:
+        query: The search query
+        n_results: Maximum number of results to return
+
+    Returns:
+        List of dicts with keys: content, role, timestamp
+    """
+    try:
+        embedding = embedding_model.encode(query).tolist()
+        results = collection.query(
+            query_embeddings=[embedding],
+            n_results=n_results
+        )
+        return [
+            {
+                "content": doc,
+                "role": results["metadatas"][0][i]["role"],
+                "timestamp": results["metadatas"][0][i]["timestamp"]
+            }
+            for i, doc in enumerate(results["documents"][0])
+        ]
+    except Exception:
+        return []
 
 
 if __name__ == "__main__":

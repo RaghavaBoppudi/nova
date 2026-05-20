@@ -1,91 +1,72 @@
 import sqlite3
-import os
-from datetime import datetime
+from contextlib import contextmanager
 
 DB_PATH = "nova_memory.db"
 
 
+@contextmanager
 def get_connection():
-    return sqlite3.connect(DB_PATH)
+    """Context manager for SQLite connections — ensures proper cleanup."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def init_db():
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id INTEGER,
-            role TEXT,
-            content TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (session_id) REFERENCES sessions(id)
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    """Create sessions and messages tables if they don't exist."""
+    with get_connection() as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                role TEXT,
+                content TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            )
+        ''')
 
 
 def create_session() -> int:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO sessions DEFAULT VALUES")
-    session_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    return session_id
+    """Create a new conversation session and return its ID."""
+    with get_connection() as conn:
+        cursor = conn.execute("INSERT INTO sessions DEFAULT VALUES")
+        return cursor.lastrowid
 
 
 def save_message(session_id: int, role: str, content: str):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
-        (session_id, role, content)
-    )
-    conn.commit()
-    conn.close()
+    """Save a single message to the database."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
+            (session_id, role, content)
+        )
 
 
 def get_session_messages(session_id: int) -> list:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC",
-        (session_id,)
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"role": row[0], "content": row[1]} for row in rows]
+    """Return all messages for a session in chronological order."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC",
+            (session_id,)
+        )
+        return [{"role": row[0], "content": row[1]} for row in cursor.fetchall()]
 
 
 def get_recent_messages(limit: int = 20) -> list:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT role, content FROM messages ORDER BY created_at DESC LIMIT ?",
-        (limit,)
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
-
-
-if __name__ == "__main__":
-    init_db()
-    session_id = create_session()
-    print(f"Created session: {session_id}")
-    save_message(session_id, "user", "what is 2 + 2")
-    save_message(session_id, "assistant", "The answer is 4")
-    save_message(session_id, "user", "what is my name?")
-    save_message(session_id, "assistant", "I don't know your name yet.")
-    messages = get_session_messages(session_id)
-    print(f"Session messages: {messages}")
-    recent = get_recent_messages()
-    print(f"Recent messages: {recent}")
+    """Return the most recent messages across all sessions."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT role, content FROM messages ORDER BY created_at DESC LIMIT ?",
+            (limit,)
+        )
+        return [{"role": row[0], "content": row[1]} for row in reversed(cursor.fetchall())]

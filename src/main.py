@@ -2,6 +2,7 @@ import sys
 import signal
 import re
 import threading
+import select
 from src.stt import listen
 from src.tts import speak, interrupt
 from src.router import route
@@ -11,14 +12,17 @@ SYSTEM_PROMPT = """You are NOVA, a voice assistant. Your responses will be spoke
 Rules:
 - Maximum 2 sentences. Hard limit. Never exceed this.
 - If the answer needs more than 2 sentences, give the most important part only.
-- No bullet points, no lists, no markdown, no bold, no asterisks.
+- No bullet points, no lists, no markdown, no bold, no asterisks, no URLs.
 - No filler words: no 'certainly', 'great question', 'of course', 'however'.
 - No follow up questions. Never ask if the user wants to know more.
 - Answer immediately. No preamble.
-- Use imperial units (mph, miles, lb, Fahrenheit).
+- Use the units the user asks for. If no units specified, use whatever is most commonly understood for that measurement.
 - For unknown prices or live data, say 'I don't have real-time data for that.'
 - Never suggest the user ask Siri, Google, or Alexa.
-- Never use emojis."""
+- Never use emojis.
+- Never use markdown formatting of any kind.
+- Always include units when giving measurements or speeds. - Never give a bare number as an answer. Always include context and units. "343 meters per second" not "343"."""
+
 
 CONFIRM_WORDS = ["yes", "yeah", "yep", "yup", "sure", "ok", "okay", "go ahead",
                  "do it", "correct", "right", "affirmative", "delete", "remove",
@@ -27,7 +31,6 @@ CONFIRM_WORDS = ["yes", "yeah", "yep", "yup", "sure", "ok", "okay", "go ahead",
 DENY_WORDS = ["no", "nope", "cancel", "stop", "don't", "nevermind", "never mind",
               "abort", "wait", "hold on", "negative"]
 
-# Global flag — is NOVA currently speaking?
 _speaking = threading.Event()
 
 
@@ -40,6 +43,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 
 def is_confirmation(prompt: str) -> bool:
+    """Return True if prompt is an affirmative response, False if negative."""
     prompt_lower = prompt.lower().strip().rstrip('.,!')
     for word in DENY_WORDS:
         if word in prompt_lower:
@@ -51,86 +55,73 @@ def is_confirmation(prompt: str) -> bool:
 
 
 def extract_time(prompt_lower: str) -> str | None:
-    time_match = re.search(r'(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)', prompt_lower)
-    if time_match:
-        hour = int(time_match.group(1))
-        minute = int(time_match.group(2)) if time_match.group(2) else 0
-        meridiem = time_match.group(3).replace('.', '')
-        if meridiem == 'pm' and hour != 12:
-            hour += 12
-        elif meridiem == 'am' and hour == 12:
-            hour = 0
-        return f"{hour:02d}:{minute:02d}"
-    return None
+    """Extract a time expression from text and return HH:MM, or None."""
+    match = re.search(r'(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)', prompt_lower)
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2)) if match.group(2) else 0
+    meridiem = match.group(3).replace('.', '')
+    if meridiem == 'pm' and hour != 12:
+        hour += 12
+    elif meridiem == 'am' and hour == 12:
+        hour = 0
+    return f"{hour:02d}:{minute:02d}"
 
 
 def handle_missing_info(pending: dict, prompt: str, prompt_lower: str):
-    from src.calendar_handler import parse_date
+    """
+    Collect missing date or time info for a pending event or reminder creation.
+    Returns (result, None) when complete, or (None, follow_up_question) when still missing info.
+    """
+    from src.calendar_handler import parse_date, create_event, move_event
     from src.reminder_handler import create_reminder
-    from src.calendar_handler import create_event, move_event
 
     missing = pending.get("missing")
     title = pending.get("title", "")
     action = pending.get("action", "create")
     is_reminder = pending.get("type") == "reminder"
 
+    def action_label():
+        if is_reminder:
+            return "remind you to"
+        return "schedule" if action == "create" else "move"
+
+    def execute(date_str, time_str):
+        if is_reminder:
+            return create_reminder(title, date_str, time_str)
+        if action == "move":
+            return move_event(title, date_str, time_str)
+        return create_event(title, date_str, time_str, pending.get("duration", 60))
+
     if missing == "both":
         time_str = extract_time(prompt_lower)
         date_str = parse_date(prompt)
         if date_str and time_str:
-            if is_reminder:
-                result = create_reminder(title, date_str, time_str)
-            elif action == "move":
-                result = move_event(title, date_str, time_str)
-            else:
-                result = create_event(title, date_str, time_str, pending.get("duration", 60))
-            return result, None
-        elif date_str:
+            return execute(date_str, time_str), None
+        if date_str:
             pending["missing"] = "time"
             pending["date"] = date_str
-            return None, f"What time should I {'remind you to' if is_reminder else 'schedule' if action == 'create' else 'move'} {title}?"
-        elif time_str:
+            return None, f"What time should I {action_label()} {title}?"
+        if time_str:
             pending["missing"] = "date"
             pending["time"] = time_str
-            return None, f"What date should I {'remind you to' if is_reminder else 'schedule' if action == 'create' else 'move'} {title}?"
-        else:
-            return None, "I didn't catch that. What date and time?"
+            return None, f"What date should I {action_label()} {title}?"
+        return None, "I didn't catch that. What date and time?"
 
-    elif missing == "time":
+    if missing == "time":
         time_str = extract_time(prompt_lower)
         if time_str:
-            date_str = pending.get("date")
-            if is_reminder:
-                result = create_reminder(title, date_str, time_str)
-            elif action == "move":
-                result = move_event(title, date_str, time_str)
-            else:
-                result = create_event(title, date_str, time_str, pending.get("duration", 60))
-            return result, None
+            return execute(pending.get("date"), time_str), None
         return None, "I didn't catch the time. What time?"
 
-    elif missing == "date":
+    if missing == "date":
         date_str = parse_date(prompt)
         if date_str:
-            time_str = pending.get("time")
-            if is_reminder:
-                result = create_reminder(title, date_str, time_str)
-            elif action == "move":
-                result = move_event(title, date_str, time_str)
-            else:
-                result = create_event(title, date_str, time_str, pending.get("duration", 60))
-            return result, None
+            return execute(date_str, pending.get("time")), None
         return None, "I didn't catch the date. What date?"
 
     return None, "Something went wrong. Please try again."
-
-
-def speak_interruptible(text: str):
-    """Speak in a background thread. Enter key interrupts."""
-    _speaking.set()
-    t = threading.Thread(target=_speak_thread, args=(text,), daemon=True)
-    t.start()
-    return t
 
 
 def _speak_thread(text: str):
@@ -138,22 +129,42 @@ def _speak_thread(text: str):
     _speaking.clear()
 
 
+def speak_interruptible(text: str) -> threading.Thread:
+    """Speak text in a background thread. Returns the thread."""
+    _speaking.set()
+    t = threading.Thread(target=_speak_thread, args=(text,), daemon=True)
+    t.start()
+    return t
+
+
 def wait_for_enter_or_finish(speak_thread: threading.Thread) -> bool:
     """
-    Wait for either:
-    - TTS to finish naturally → return False (not interrupted)
-    - User presses Enter → interrupt TTS → return True (interrupted)
+    Wait for TTS to finish or Enter key press.
+    Returns True if interrupted, False if finished naturally.
     """
-    import select
-
     while speak_thread.is_alive():
-        # Check if Enter was pressed (non-blocking)
         if sys.stdin in select.select([sys.stdin], [], [], 0.1)[0]:
-            sys.stdin.readline()  # consume the Enter
+            sys.stdin.readline()
             interrupt()
             speak_thread.join()
             return True
     return False
+
+
+def handle_result(result, pending_action, pending_info, session_id):
+    """
+    Process a route result and update pending state.
+    Returns (response_text, updated_pending_action, updated_pending_info).
+    """
+    if isinstance(result, dict) and result.get("requires_confirmation"):
+        return result["message"], result, pending_info
+    if isinstance(result, dict) and result.get("requires_event_info"):
+        info = {**result, "type": "event", "action": result.get("action", "create")}
+        return result["message"], pending_action, info
+    if isinstance(result, dict) and result.get("requires_reminder_info"):
+        info = {**result, "type": "reminder"}
+        return result["message"], pending_action, info
+    return result, pending_action, pending_info
 
 
 def run():
@@ -172,55 +183,53 @@ def run():
         prompt = listen()
 
         if not prompt:
-            speak("I didn't catch that. Please try again.")
+            speak("Pardon?")
+            continue
+
+        # Reject transcriptions that are too short or garbled
+        if len(prompt.split()) < 2:
+            speak("Pardon?")
             continue
 
         print(f"You: {prompt}")
         prompt_lower = prompt.lower().strip()
 
-        # Handle pending calendar delete confirmation
+        # Handle pending confirmation (delete operations)
         if pending_action:
             if is_confirmation(prompt):
                 action_type = pending_action.get("type")
+                result = None
+
                 if action_type == "delete_range":
                     from src.calendar_handler import delete_events_for_range
                     result = delete_events_for_range(
                         pending_action["start"],
                         pending_action["end"]
                     )
-                    pending_action = None
-                    print(f"NOVA: {result}")
-                    t = speak_interruptible(result)
-                    wait_for_enter_or_finish(t)
-                    continue
                 elif action_type == "delete_reminders":
                     from src.reminder_handler import execute_delete_reminders
                     result = execute_delete_reminders(
                         pending_action["title"],
                         pending_action.get("list_name", "Reminders")
                     )
-                    pending_action = None
-                    print(f"NOVA: {result}")
-                    t = speak_interruptible(result)
-                    wait_for_enter_or_finish(t)
-                    continue
                 elif action_type == "delete_reminders_date":
                     from src.reminder_handler import execute_delete_reminders_for_date
                     result = execute_delete_reminders_for_date(pending_action["date"])
-                    pending_action = None
+
+                pending_action = None
+                if result:
                     print(f"NOVA: {result}")
                     t = speak_interruptible(result)
                     wait_for_enter_or_finish(t)
-                    continue
             else:
                 pending_action = None
                 response = "Cancelled."
                 print(f"NOVA: {response}")
                 t = speak_interruptible(response)
                 wait_for_enter_or_finish(t)
-                continue
+            continue
 
-        # Handle pending missing info
+        # Handle pending missing info (date/time collection)
         if pending_info:
             result, follow_up = handle_missing_info(pending_info, prompt, prompt_lower)
             if result:
@@ -236,46 +245,25 @@ def run():
 
         # Normal routing
         result = route(prompt, session_id, system_prompt=SYSTEM_PROMPT)
-
-        if isinstance(result, dict) and result.get("requires_confirmation"):
-            pending_action = result
-            response = result["message"]
-        elif isinstance(result, dict) and result.get("requires_event_info"):
-            pending_info = {**result, "type": "event", "action": result.get("action", "create")}
-            response = result["message"]
-        elif isinstance(result, dict) and result.get("requires_reminder_info"):
-            pending_info = {**result, "type": "reminder"}
-            response = result["message"]
-        else:
-            response = result
+        response, pending_action, pending_info = handle_result(
+            result, pending_action, pending_info, session_id
+        )
 
         print(f"NOVA: {response}")
         t = speak_interruptible(response)
         interrupted = wait_for_enter_or_finish(t)
 
-        # If interrupted, immediately start listening
+        # If interrupted, immediately listen for next command
         if interrupted:
             print("Listening...")
             prompt = listen()
             if not prompt:
                 continue
             print(f"You: {prompt}")
-            prompt_lower = prompt.lower().strip()
-
             result = route(prompt, session_id, system_prompt=SYSTEM_PROMPT)
-
-            if isinstance(result, dict) and result.get("requires_confirmation"):
-                pending_action = result
-                response = result["message"]
-            elif isinstance(result, dict) and result.get("requires_event_info"):
-                pending_info = {**result, "type": "event", "action": result.get("action", "create")}
-                response = result["message"]
-            elif isinstance(result, dict) and result.get("requires_reminder_info"):
-                pending_info = {**result, "type": "reminder"}
-                response = result["message"]
-            else:
-                response = result
-
+            response, pending_action, pending_info = handle_result(
+                result, pending_action, pending_info, session_id
+            )
             print(f"NOVA: {response}")
             t = speak_interruptible(response)
             wait_for_enter_or_finish(t)

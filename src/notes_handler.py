@@ -1,8 +1,10 @@
 import subprocess
-from datetime import datetime
+
+DEFAULT_FOLDER = "Notes"
 
 
 def run_applescript(script: str) -> str:
+    """Run an AppleScript and return stdout, stripped."""
     result = subprocess.run(
         ["osascript", "-e", script],
         capture_output=True, text=True,
@@ -11,7 +13,8 @@ def run_applescript(script: str) -> str:
     return result.stdout.strip()
 
 
-def get_notes(folder: str = "Notes") -> str:
+def get_notes(folder: str = DEFAULT_FOLDER) -> str:
+    """Return names of all notes in a folder."""
     script = f'''tell application "Notes"
     set output to ""
     tell folder "{folder}"
@@ -22,14 +25,13 @@ def get_notes(folder: str = "Notes") -> str:
     return output
 end tell'''
     result = run_applescript(script)
-    if not result:
-        return f"No notes found in {folder}."
-    return result
+    return result if result else f"No notes found in {folder}."
 
 
-def create_note(title: str, body: str = "", folder: str = "Notes") -> str:
-    safe_body = body.replace('"', '\\"')
+def create_note(title: str, body: str = "", folder: str = DEFAULT_FOLDER) -> str:
+    """Create a new note with a title and optional body."""
     safe_title = title.replace('"', '\\"')
+    safe_body = body.replace('"', '\\"')
     content = safe_body if safe_body else safe_title
     script = f'''tell application "Notes"
     tell folder "{folder}"
@@ -40,7 +42,8 @@ return "Note created: {safe_title}"'''
     return run_applescript(script)
 
 
-def search_notes(query: str, folder: str = "Notes") -> str:
+def search_notes(query: str, folder: str = DEFAULT_FOLDER) -> str:
+    """Search notes by title or body content. Returns matching note names."""
     safe_query = query.replace('"', '\\"')
     script = f'''tell application "Notes"
     set output to ""
@@ -54,12 +57,11 @@ def search_notes(query: str, folder: str = "Notes") -> str:
     return output
 end tell'''
     result = run_applescript(script)
-    if not result:
-        return f"No notes found matching '{query}'."
-    return f"Found: {result}"
+    return f"Found: {result}" if result else f"No notes found matching '{query}'."
 
 
-def delete_note(title: str, folder: str = "Notes") -> str:
+def delete_note(title: str, folder: str = DEFAULT_FOLDER) -> str:
+    """Delete the first note whose name contains title."""
     script = f'''tell application "Notes"
     tell folder "{folder}"
         set targetName to ""
@@ -77,11 +79,3 @@ def delete_note(title: str, folder: str = "Notes") -> str:
 end tell
 return "Note not found: {title}"'''
     return run_applescript(script)
-
-
-if __name__ == "__main__":
-    print(create_note("Test Note", "This is a test note created by NOVA."))
-    print(get_notes())
-    print(search_notes("Test"))
-    print(delete_note("Test Note"))
-    print(get_notes())
