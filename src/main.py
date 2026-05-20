@@ -7,6 +7,8 @@ from src.stt import listen
 from src.tts import speak, interrupt
 from src.router import route
 from src.memory import init_db, create_session
+from dotenv import load_dotenv
+load_dotenv()
 
 SYSTEM_PROMPT = """You are NOVA, a voice assistant. Your responses will be spoken aloud.
 Rules:
@@ -228,6 +230,17 @@ def run():
                 t = speak_interruptible(response)
                 wait_for_enter_or_finish(t)
             continue
+
+        # Handle pending missing info (date/time collection)
+        if pending_info:
+            if any(w in prompt_lower for w in ["no", "cancel", "stop", "nevermind", "never mind", "abort"]):
+                pending_info = None
+                response = "Cancelled."
+                print(f"NOVA: {response}")
+                t = speak_interruptible(response)
+                wait_for_enter_or_finish(t)
+                continue
+            result, follow_up = handle_missing_info(pending_info, prompt, prompt_lower)
 
         # Handle pending missing info (date/time collection)
         if pending_info:

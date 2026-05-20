@@ -136,8 +136,7 @@ def _handle_math(data: dict, prompt: str) -> str | None:
     result = calculate(expression)
     if result:
         return result
-    return ask(prompt, [], system_prompt="Answer this math question in one short sentence. Numbers only, no explanation.")
-
+    return result
 
 def _handle_reminders(data: dict, prompt: str) -> str | dict:
     """Handle all reminder intents."""

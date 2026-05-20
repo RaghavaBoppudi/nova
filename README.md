@@ -1,49 +1,44 @@
 # NOVA — Neural Operations Voice Assistant
 
-A privacy-focused AI voice assistant built for macOS. Runs entirely on your device. No subscriptions. No telemetry. No data leaves your machine.
+A privacy-focused AI voice assistant built for macOS. Your personal data never leaves your device. No subscriptions. No telemetry.
+
+> "What if your assistant actually knew you, remembered everything you told it, ran entirely on your device, and you could trust it completely?"
 
 ## What NOVA Can Do Right Now
 
 - **Voice in, voice out** — speak naturally, NOVA responds in a human voice
-- **Apple Calendar** — read your schedule, create events, move events, delete events, all by voice
+- **Apple Calendar** — read your schedule, create, move, and delete events by voice
 - **Apple Reminders** — create, read, complete, and delete reminders by voice
-- **Math** — calculations and percentage queries handled instantly without the LLM
+- **Apple Notes** — create, search, and delete notes by voice
+- **Math** — calculations and percentage queries handled instantly
 - **Date intelligence** — understands "next Friday", "this Sunday", "2 weeks from now", "what day was May 12 1928"
 - **Conversational flow** — if you say "set up a meeting on Friday", NOVA asks what time. Missing info is always requested, never assumed.
 - **Session memory** — remembers what you said earlier in the conversation
 - **Cross-session memory** — remembers things you've told it across sessions using semantic search
+- **Interrupt** — press Enter while NOVA is speaking to stop it and ask something new
 
 ## Privacy
 
-All processing happens on your Mac. The LLM runs locally via Ollama. Your voice never leaves your device. Your calendar and reminder data is read directly via AppleScript — no cloud sync required. Conversations are stored in a local SQLite database.
+NOVA is built with privacy as a core principle. Here is exactly what stays on your device and what doesn't:
 
-NOVA does not connect to the internet for any of its current features.
+**Always local — never leaves your Mac:**
+- Your calendar, reminders, and notes data
+- Your conversation history (SQLite)
+- Your long-term memory (ChromaDB)
+- Voice processing (Whisper STT, Kokoro TTS)
+
+**Goes to Groq's servers:**
+- The text of what you say out loud — for LLM inference only
+- Groq explicitly states they do not train on or log API data
+- No personal data, calendar contents, or memory is ever sent
+
+**Want fully offline?** Set `NOVA_BACKEND=local` in your `.env` file to use a local Ollama model instead. Response times will be slower but nothing leaves your device.
 
 ## A Note on Expectations
 
 NOVA is a one-person passion project, built in spare time alongside a full-time job in data engineering. It is not as capable as Siri, Google Assistant, or Alexa. Those are products built by thousands of engineers with billions in funding. NOVA is not competing with them.
 
-What NOVA offers is different: everything runs on your device, nothing is sent to a server, and the code is fully open for anyone to read and verify. If that trade-off — capability for privacy and transparency — resonates with you, NOVA might be worth trying.
-
-If you need a fully-featured voice assistant, use Siri. If you want one you can trust completely, NOVA is here.
-
-## Known Limitations
-
-- Llama 3.1 8B can hallucinate on obscure factual queries — treat general knowledge answers as approximate
-- macOS only — no Windows or Linux support currently
-- Built-in mic does not work in clamshell mode — use AirPods or external mic
-- Response time is 5-10 seconds on M2 — will improve with faster hardware
-
-## Future Improvements
-
-- Notes — create and search Apple Notes by voice
-- Alarms — set and manage alarms by voice
-- Wake word detection ("Hey NOVA") to replace push-to-talk
-- Self-hosted web search via SearXNG for real-time information
-- Natural language reminders with full context ("remind me about this when I get home")
-- Statistical modeling and advanced math
-- Install script for one-command setup
-- Expanded platform support
+What NOVA offers is different: your personal data never leaves your device, the code is fully open for anyone to read and verify, and it gets smarter the more you use it through local memory. If that trade-off resonates with you, NOVA might be worth trying.
 
 ## Requirements
 
@@ -51,17 +46,14 @@ If you need a fully-featured voice assistant, use Siri. If you want one you can 
 - Apple Silicon recommended (M1/M2/M3)
 - 16GB RAM minimum
 - Python 3.11.9
-- Ollama
 - Homebrew
+- A free Groq API key (or Ollama for fully local operation)
 
 ## Installation
 
-### 1. Install Homebrew and Ollama
+### 1. Install Homebrew
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-brew install ollama
-brew services start ollama
-ollama pull llama3.1:8b
 ```
 
 ### 2. Install pyenv and Python 3.11.9
@@ -93,7 +85,16 @@ wget https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v
 cd ../..
 ```
 
-### 6. Run NOVA
+### 6. Configure environment
+```bash
+cp .env.example .env
+```
+Add your Groq API key to `.env`:
+GROQ_API_KEY=your_key_here
+
+Get a free key at [console.groq.com](https://console.groq.com) — no credit card required.
+
+### 7. Set PYTHONPATH and run
 ```bash
 export PYTHONPATH="/path/to/nova"
 python src/main.py
@@ -103,15 +104,34 @@ python src/main.py
 
 | Component | Tool |
 |---|---|
-| LLM | Ollama + Llama 3.1 8B (local) |
-| Speech to Text | faster-whisper (Whisper Small, local) |
+| LLM | Groq API — llama-3.1-8b-instant (cloud, fast) |
+| LLM fallback | Ollama + Gemma 3 4B (local, private) |
+| Speech to Text | faster-whisper — Whisper Small (local) |
 | Text to Speech | Kokoro ONNX — af_bella voice (local) |
 | Calendar | AppleScript via osascript |
 | Reminders | AppleScript via osascript |
-| Session Memory | SQLite |
-| Semantic Memory | ChromaDB + sentence-transformers |
+| Notes | AppleScript via osascript |
+| Session Memory | SQLite (local) |
+| Semantic Memory | ChromaDB + sentence-transformers (local) |
 | Date Parsing | dateparser + python-dateutil |
 | Tool Routing | Single LLM classification call |
+
+## Known Limitations
+
+- LLM may hallucinate on obscure factual queries
+- macOS only — no Windows or Linux support currently
+- Built-in mic does not work in clamshell mode — use AirPods or external mic
+- Groq free tier: 14,400 requests/day, 30/minute
+
+## Future Improvements
+
+- [ ] Alarms and countdown timers
+- [ ] World clock and timezone queries
+- [ ] Unit and currency conversions
+- [ ] Wake word detection ("Hey NOVA")
+- [ ] Self-hosted SearXNG for real-time web search
+- [ ] Install script for one-command setup
+- [ ] Configurable model selection via UI
 
 ## Status
 
