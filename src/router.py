@@ -120,10 +120,18 @@ def _apply_overrides(data: dict, prompt_lower: str) -> dict:
     if ("reminder" in prompt_lower or "reminders" in prompt_lower) and data.get("intent") in ["get", "get_range", "search", "unknown"]:
         data.update({"is_reminder": True, "is_calendar": False, "is_notes": False, "intent": "get"})
 
-# Override: physics/science questions are never math
+    # Override: physics/science questions are never math
     science_keywords = ["speed of", "velocity of", "distance to", "temperature of", 
                         "mass of", "weight of", "diameter of", "radius of"]
     if any(k in prompt_lower for k in science_keywords):
+        data["is_math"] = False
+        data["expression"] = None
+
+    # Override: questions starting with "who", "what", "when", "where", "why", "how" 
+    # that don't contain operators are never math
+    question_words = ["who ", "what ", "when ", "where ", "why ", "how "]
+    has_operator = any(op in prompt_lower for op in ['+', '-', '*', '/', '%', ' of '])
+    if any(prompt_lower.startswith(w) for w in question_words) and not has_operator:
         data["is_math"] = False
         data["expression"] = None
 
