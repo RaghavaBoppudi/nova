@@ -15,6 +15,7 @@ from src.notes_handler import get_notes, create_note, search_notes, delete_note
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from src.clock_handler import get_time_in, is_midnight_in, get_time_difference
+from src.unit_handler import convert
 import json
 import re
 
@@ -478,7 +479,36 @@ def route(prompt: str, session_id: int, system_prompt: str = "") -> str | dict:
                 location = re.sub(r'.*(time\s+is\s+it\s+in\s+|time\s+in\s+|day\s+is\s+it\s+in\s+)', '', prompt_lower).strip()
                 location = re.sub(r'\?$', '', location).strip()
                 return _save_and_return(session_id, get_time_in(location))
-                
+
+    # Handle unit conversions directly
+    unit_pattern = re.search(
+        r'convert\s+([\d.]+)\s+(\w[\w\s]*?)\s+to\s+(\w[\w\s]*?)$|'
+        r'how\s+many\s+(\w[\w\s]*?)\s+in\s+([\d.]+)\s+(\w[\w\s]*?)$|'
+        r'([\d.]+)\s+(\w[\w\s]*?)\s+in\s+(\w[\w\s]*?)$|'
+        r'what\s+is\s+([\d.]+)\s+(\w[\w\s]*?)\s+in\s+(\w[\w\s]*?)$',
+        prompt_lower
+    )
+    if unit_pattern:
+        groups = unit_pattern.groups()
+        # Pattern 1: "convert X unit to unit"
+        if groups[0]:
+            value, from_unit, to_unit = float(groups[0]), groups[1].strip(), groups[2].strip()
+        # Pattern 2: "how many X in Y unit"
+        elif groups[3]:
+            to_unit, value, from_unit = groups[3].strip(), float(groups[4]), groups[5].strip()
+        # Pattern 3: "X unit in unit"
+        elif groups[6]:
+            value, from_unit, to_unit = float(groups[6]), groups[7].strip(), groups[8].strip()
+        # Pattern 4: "what is X unit in unit"
+        elif groups[9]:
+            value, from_unit, to_unit = float(groups[9]), groups[10].strip(), groups[11].strip()
+        else:
+            value, from_unit, to_unit = None, None, None
+
+        if value is not None:
+            result = convert(value, from_unit, to_unit)
+            return _save_and_return(session_id, result)
+            
     # Handle current date/time directly
     if any(k in prompt_lower for k in TODAY_KEYWORDS) and "tomorrow" not in prompt_lower and "yesterday" not in prompt_lower:
         return _save_and_return(session_id, datetime.now().strftime("Today is %A, %B %d, %Y."))
