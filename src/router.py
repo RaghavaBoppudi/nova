@@ -14,6 +14,7 @@ from src.reminder_handler import (
 from src.notes_handler import get_notes, create_note, search_notes, delete_note
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+from src.clock_handler import get_time_in, is_midnight_in, get_time_difference
 import json
 import re
 
@@ -451,6 +452,33 @@ def route(prompt: str, session_id: int, system_prompt: str = "") -> str | dict:
 
     prompt_lower = prompt.lower()
 
+
+    # Handle world clock queries directly
+    clock_patterns = [
+        r'what\s+(time|day)\s+is\s+it\s+in\s+(.+)',
+        r'what\s+time\s+is\s+it\s+in\s+(.+)',
+        r'is\s+it\s+midnight\s+in\s+(.+)',
+        r'time\s+in\s+(.+)',
+        r'(time\s+difference|how\s+many\s+hours).*(between|and)\s+(.+)\s+and\s+(.+)',
+    ]
+
+    for pattern in clock_patterns:
+        match = re.search(pattern, prompt_lower)
+        if match:
+            if 'midnight' in prompt_lower:
+                location = re.sub(r'.*(midnight\s+in\s+)', '', prompt_lower).strip()
+                return _save_and_return(session_id, is_midnight_in(location))
+            elif 'difference' in prompt_lower or 'how many hours' in prompt_lower:
+                parts = re.split(r'\s+and\s+|\s+between\s+', prompt_lower)
+                if len(parts) >= 2:
+                    loc1 = parts[-2].strip()
+                    loc2 = parts[-1].strip()
+                    return _save_and_return(session_id, get_time_difference(loc1, loc2))
+            else:
+                location = re.sub(r'.*(time\s+is\s+it\s+in\s+|time\s+in\s+|day\s+is\s+it\s+in\s+)', '', prompt_lower).strip()
+                location = re.sub(r'\?$', '', location).strip()
+                return _save_and_return(session_id, get_time_in(location))
+                
     # Handle current date/time directly
     if any(k in prompt_lower for k in TODAY_KEYWORDS) and "tomorrow" not in prompt_lower and "yesterday" not in prompt_lower:
         return _save_and_return(session_id, datetime.now().strftime("Today is %A, %B %d, %Y."))
